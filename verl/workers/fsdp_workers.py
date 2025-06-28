@@ -15,38 +15,40 @@
 The main entry point to run the PPO algorithm
 """
 
-import os
 import logging
+import os
 import warnings
-import ray
+
 import torch
 import torch.distributed
-from omegaconf import DictConfig, open_dict
-from transformers import AutoModelForCausalLM
+from omegaconf import DictConfig
 
-from verl.single_controller.base import Worker
-from verl.single_controller.base.decorator import register, Dispatch
+import verl.utils.hdfs_io as hdfs_io
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
-from verl.utils.model import compute_position_id_with_mask
-from verl.utils.fs import copy_local_path_from_hdfs
-from verl.utils.fsdp_utils import get_fsdp_wrap_policy, load_fsdp_grad, offload_fsdp_grad, init_fn, get_init_weight_context_manager, get_fsdp_wrap_policy_vla
-from verl.utils.fsdp_utils import offload_fsdp_optimizer, offload_fsdp_param_and_grad, load_fsdp_optimizer, load_fsdp_param_and_grad
-from verl.utils.import_utils import import_external_libs
-from verl.utils.debug import log_gpu_memory_usage
-import verl.utils.hdfs_io as hdfs_io
+from verl.single_controller.base import Worker
+from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils import hf_tokenizer
-from ..trainer.ppo import core_algos
-from verl.utils.py_functional import append_to_dict
-from codetiming import Timer
-
+from verl.utils.debug import log_gpu_memory_usage
+from verl.utils.fs import copy_local_path_from_hdfs
+from verl.utils.fsdp_utils import (
+    get_fsdp_wrap_policy,
+    get_fsdp_wrap_policy_vla,
+    get_init_weight_context_manager, 
+    init_fn, 
+    load_fsdp_optimizer, 
+    load_fsdp_param_and_grad,
+    offload_fsdp_grad,
+    offload_fsdp_optimizer, 
+    offload_fsdp_param_and_grad, 
+)
+from verl.utils.import_utils import import_external_libs
+from verl.utils.model import compute_position_id_with_mask
 
 from verl.utils.openvla_utils import update_auto_map , check_model_logic_mismatch
-from peft import LoraConfig, PeftModel, get_peft_model, TaskType
-import json
+from peft import LoraConfig, get_peft_model
 
 from experiments.robot.openvla_utils import _load_dataset_stats
-
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
