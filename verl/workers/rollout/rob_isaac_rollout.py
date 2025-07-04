@@ -31,15 +31,19 @@ from verl.workers.rollout.base import BaseRollout
 
 from transformers import GenerationConfig, AutoProcessor
 
-from verl.utils.libero_utils import (
-    get_libero_env,
-    get_libero_dummy_action,
-    get_libero_image,
-    get_libero_wrist_image,
-    quat2axisangle,
-    normalize_gripper_action,
-    invert_gripper_action,
-    save_rollout_video,
+# from verl.utils.libero_utils import (
+#     get_libero_env,
+#     get_libero_dummy_action,
+#     get_libero_image,
+#     get_libero_wrist_image,
+#     quat2axisangle,
+#     normalize_gripper_action,
+#     invert_gripper_action,
+#     save_rollout_video,
+# )
+from verl.utils.isaac_utils import (
+    get_isaac_env,
+    get_isaac_dummy_action,
 )
 import numpy as np
 from PIL import Image
@@ -145,18 +149,10 @@ def env_worker(
     global_steps,
     max_steps,
 ):
-    benchmark_dict = benchmark.get_benchmark_dict()
-    task_suite = benchmark_dict[task_name]()
-    task = task_suite.get_task(task_id)  # i.e. LIBERO_10
-    initial_states = task_suite.get_task_init_states(task_id)  # 50 trials for each task
-    initial_state = initial_states[trial_id]
-
     env = None
     while True:
         try:
-            env, task_description = get_libero_env(
-                task, config.model_family, resolution=256
-            )
+            env, task_description = get_isaac_env(task_name)
             break
         except:
             print("*** env initialization failed ***")
@@ -169,13 +165,12 @@ def env_worker(
             gc.collect()
             print("gc collect finish")
 
-    env.reset()
-    obs = env.set_init_state(initial_state)
+    env.reset_to(initial_state)
 
     t = 0
     valid_images = []
     while t < config.num_steps_wait:
-        obs, _, _, _ = env.step(get_libero_dummy_action(config.model_family))
+        obs, _, _, _ = env.step(get_isaac_dummy_action(config.model_family))
         t += 1
 
     if is_valid:
@@ -235,7 +230,7 @@ def env_worker(
         output_queue.put(output_data)
 
 
-class RobHFRollout(BaseRollout):
+class RobHFIsaacRollout(BaseRollout):
 
     def __init__(self, module: nn.Module, config):
         super().__init__()

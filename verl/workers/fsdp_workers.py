@@ -307,11 +307,16 @@ class RobActorRolloutRefWorker(Worker):
 
     def _build_rollout(self):
         if self.config.rollout.name == 'hf':
-            from verl.workers.rollout import RobHFRollout
+            from verl.workers.rollout.rob_rollout import RobHFRollout
             from verl.workers.hybrid_engine import BaseShardingManager
             rollout = RobHFRollout(module=self.actor_module_fsdp, config=self.config.rollout)
             sharding_manager = BaseShardingManager()
             # TODO: a sharding manager that do nothing?
+        elif self.config.rollout.name == 'hf_isaac':
+            from verl.workers.rollout.rob_isaac_rollout import RobHFIsaacRollout
+            from verl.workers.hybrid_engine import BaseShardingManager
+            rollout = RobHFIsaacRollout(module=self.actor_module_fsdp, config=self.config.rollout)
+            sharding_manager = BaseShardingManager()
         elif self.config.rollout.name == 'vllm':
             raise ValueError
             # from verl.workers.rollout.vllm_rollout import vLLMRollout
