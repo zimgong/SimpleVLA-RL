@@ -165,8 +165,6 @@ def env_worker(
             gc.collect()
             print("gc collect finish")
 
-    env.reset_to(initial_state)
-
     t = 0
     valid_images = []
     while t < config.num_steps_wait:

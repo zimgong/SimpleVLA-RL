@@ -1,9 +1,10 @@
 import unittest
 
-from multiprocessing import Queue
+from collections import defaultdict
+from multiprocessing import Process, Queue
 from omegaconf import OmegaConf
 
-from rob_rollout import env_worker
+from rob_rollout import env_worker, RobHFRollout
 
 
 class TestEnvWorker(unittest.TestCase):
@@ -52,7 +53,43 @@ class TestEnvWorker(unittest.TestCase):
         global_step = 0
         max_steps = 512
 
-        env_worker(task_name, t_id, tr_id, config, input_q, output_q, is_valid, global_step, max_steps)
+        p = Process(
+            target=env_worker,
+            args=(
+                task_name, 
+                t_id, 
+                tr_id, 
+                config, 
+                input_q, 
+                output_q, 
+                is_valid, 
+                global_step, 
+                max_steps,
+            ),
+        )
+        p.start()
+
+        inputs = []
+        task_descriptions = []
+        task_records = []
+        valid_video = defaultdict(list)
+        init_data = output_q.get(timeout=120)
+        assert init_data["type"] == "init"
+        task_descriptions.append(init_data["task_description"])
+        # inputs.append(self._obs_to_input(init_data["obs"]))
+        task_records.append(
+            {
+                "active": init_data["active"],
+                "complete": init_data["complete"],
+                "finish_step": init_data["finish_step"],
+                "task_file_name": init_data["task_file_name"],
+            }
+        )
+        if is_valid:
+            valid_video[init_data["task_file_name"]].extend(
+                init_data["valid_images"]
+            )
+        
 
 
 if __name__ == "__main__":
