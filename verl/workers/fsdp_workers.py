@@ -45,10 +45,9 @@ from verl.utils.fsdp_utils import (
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
 
-from verl.utils.openvla_utils import update_auto_map , check_model_logic_mismatch
+from verl.utils.openvla_utils import update_auto_map , check_model_logic_mismatch, _load_dataset_stats
 from peft import LoraConfig, get_peft_model
 
-from experiments.robot.openvla_utils import _load_dataset_stats
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))

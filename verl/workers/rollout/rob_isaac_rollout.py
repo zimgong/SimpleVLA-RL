@@ -31,111 +31,30 @@ from verl.workers.rollout.base import BaseRollout
 
 from transformers import GenerationConfig, AutoProcessor
 
-# from verl.utils.libero_utils import (
-#     get_libero_env,
-#     get_libero_dummy_action,
-#     get_libero_image,
-#     get_libero_wrist_image,
-#     quat2axisangle,
-#     normalize_gripper_action,
-#     invert_gripper_action,
-#     save_rollout_video,
-# )
+from verl.utils.robot_utils import (
+    normalize_gripper_action,
+    invert_gripper_action,
+)
+from verl.utils.openvla_utils import (
+    center_crop_image,
+)
 from verl.utils.isaac_utils import (
     get_isaac_env,
     get_isaac_dummy_action,
+    get_isaac_image, 
+    get_isaac_wrist_image,
+    quat2axisangle,
+    save_rollout_video,
 )
 import numpy as np
 from PIL import Image
 import tensorflow as tf
-from libero.libero import benchmark
 
 import gc
 from multiprocessing import Process, Queue
 from collections import defaultdict
 
-__all__ = ['RobHFRollout']
-
-OPENVLA_V01_SYSTEM_PROMPT = (
-    "A chat between a curious user and an artificial intelligence assistant. "
-    "The assistant gives helpful, detailed, and polite answers to the user's questions."
-)
-
-
-def crop_and_resize(image, crop_scale, batch_size):
-    """
-    Center-crops an image to have area `crop_scale` * (original image area), and then resizes back
-    to original size. We use the same logic seen in the `dlimp` RLDS datasets wrapper to avoid
-    distribution shift at test time.
-
-    Args:
-        image: TF Tensor of shape (batch_size, H, W, C) or (H, W, C) and datatype tf.float32 with
-               values between [0,1].
-        crop_scale: The area of the center crop with respect to the original image.
-        batch_size: Batch size.
-    """
-    # Convert from 3D Tensor (H, W, C) to 4D Tensor (batch_size, H, W, C)
-    assert image.shape.ndims == 3 or image.shape.ndims == 4
-    expanded_dims = False
-    if image.shape.ndims == 3:
-        image = tf.expand_dims(image, axis=0)
-        expanded_dims = True
-
-    # Get height and width of crop
-    new_heights = tf.reshape(
-        tf.clip_by_value(tf.sqrt(crop_scale), 0, 1), shape=(batch_size,)
-    )
-    new_widths = tf.reshape(
-        tf.clip_by_value(tf.sqrt(crop_scale), 0, 1), shape=(batch_size,)
-    )
-
-    # Get bounding box representing crop
-    height_offsets = (1 - new_heights) / 2
-    width_offsets = (1 - new_widths) / 2
-    bounding_boxes = tf.stack(
-        [
-            height_offsets,
-            width_offsets,
-            height_offsets + new_heights,
-            width_offsets + new_widths,
-        ],
-        axis=1,
-    )
-
-    # Crop and then resize back up
-    image = tf.image.crop_and_resize(
-        image, bounding_boxes, tf.range(batch_size), (224, 224)
-    )
-
-    # Convert back to 3D Tensor (H, W, C)
-    if expanded_dims:
-        image = image[0]
-
-    return image
-
-
-def center_crop_image(image):
-    batch_size = 1
-    crop_scale = 0.9
-
-    # Convert to TF Tensor and record original data type (should be tf.uint8)
-    image = tf.convert_to_tensor(np.array(image))
-    orig_dtype = image.dtype
-
-    # Convert to data type tf.float32 and values between [0,1]
-    image = tf.image.convert_image_dtype(image, tf.float32)
-
-    # Crop and then resize back to original size
-    image = crop_and_resize(image, crop_scale, batch_size)
-
-    # Convert back to original data type
-    image = tf.clip_by_value(image, 0, 1)
-    image = tf.image.convert_image_dtype(image, orig_dtype, saturate=True)
-
-    # Convert back to PIL Image
-    image = Image.fromarray(image.numpy())
-    image = image.convert("RGB")
-    return image
+__all__ = ['RobIsaacRollout']
 
 
 def env_worker(
@@ -172,7 +91,7 @@ def env_worker(
         t += 1
 
     if is_valid:
-        img = obs["agentview_image"][::-1, ::-1]
+        img = obs["policy"]["global_camera"][0].to('cpu').numpy()
         valid_images.append(img)
 
     output_queue.put(
@@ -204,10 +123,12 @@ def env_worker(
             a = action[i]
             normalized_action = normalize_gripper_action(a, binarize=True)
             inverted_action = invert_gripper_action(normalized_action)
-            obs, reward, done, info = env.step(inverted_action.tolist())
+            action = np.concatenate([action, np.zeros(11-len(action))]).reshape(1,-1)
+            action = torch.tensor(action,dtype=torch.float32)
+            obs, reward, done, info = env.step(action)
 
             if is_valid:
-                img = obs["agentview_image"][::-1, ::-1]
+                img = obs["policy"]["global_camera"][0].to('cpu').numpy()
                 step_images.append(img)
 
             finish_step += 1
@@ -235,11 +156,7 @@ class RobHFIsaacRollout(BaseRollout):
         self.config = config
         self.module = module
         self.max_steps = {
-            "libero_spatial": 512,  # max step length 193
-            "libero_object": 512,  # max step length 254
-            "libero_goal": 512,  # max step length 270
-            "libero_10": 512,  # max step length 505
-            "libero_90": 512,  # max step length 373 org 400 now change to 512
+            "isaac": 512,
         }
         self.processor = AutoProcessor.from_pretrained(
             config.pretrained_checkpoint, trust_remote_code=True
@@ -769,8 +686,8 @@ class RobHFIsaacRollout(BaseRollout):
     def _obs_to_input(self, obs):
         if self.config.num_images_in_input > 1:
             return {
-                "full_image": get_libero_image(obs, 224),
-                "wrist_image": get_libero_wrist_image(obs, 224),
+                "full_image": get_isaac_image(obs),
+                "wrist_image": get_isaac_wrist_image(obs),
                 "state": np.concatenate(
                     [
                         obs["robot0_eef_pos"],
@@ -781,7 +698,7 @@ class RobHFIsaacRollout(BaseRollout):
             }
         else:
             return {
-                "full_image": get_libero_image(obs, 224),
+                "full_image": get_isaac_image(obs),
                 "state": np.concatenate(
                     [
                         obs["robot0_eef_pos"],
